@@ -189,7 +189,7 @@ public:
         _cos_theta_in(ntheta_in), _sin_theta_in(ntheta_in),
         _sin_theta_in_inverse(ntheta_in), _cos_theta_out(ntheta_out),
         _sin_theta_out(ntheta_out), _sin_theta_out_inverse(ntheta_out),
-        _cos_phi_in(nphi), _sin_phi_in(nphi) {
+        _cos_phi(nphi), _sin_phi(nphi) {
 
     for (uint_fast32_t i = 0; i < ntheta_in; ++i) {
       _theta_in[i] = theta_in[i];
@@ -741,9 +741,9 @@ public:
           const float_type cos_phi = _grid._cos_phi[iphi];
           const float_type sin_phi = _grid._sin_phi[iphi];
 
-          std::complex<float_type> Stp[4];
+          std::complex<float_type> S[4];
           get_forward_scattering_matrix(1, itheta_in, 0, itheta_out, cos_phi,
-                                        sin_phi, Stp);
+                                        sin_phi, S);
 
           float_type *Z = &_result._Z[4 * itheta_out * itheta_in * iphi];
           Z[0] = (half * (S[0] * conj(S[0]) + S[1] * conj(S[1]) +

@@ -30,6 +30,7 @@
 #include "AbsorptionCoefficientTask.hpp"
 #include "Configuration.hpp"
 #include "ExtinctionCoefficientTask.hpp"
+#include "FullScatteringMatrixTask.hpp"
 #include "QuickSchedWrapper.hpp"
 #include "ScatteringMatrixTask.hpp"
 #include "ShapeDistribution.hpp"

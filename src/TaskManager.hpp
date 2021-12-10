@@ -1344,6 +1344,678 @@ public:
       ctm_warning("Done creating tasks and resources.");
     }
   }
+
+  /**
+   * @brief Generate and link all the tasks required to compute full
+   * scattering matrices for the configured grid of parameters.
+   *
+   * @param theta_in Grid of input zenith angles (in radians).
+   * @param theta_out Grid of output azimuth angles (in radians).
+   * @param phi Grid of relative azimuth angles (in radians).
+   * @param quicksched QuickSched library wrapper.
+   * @param tasks List of tasks. Tasks need to be deleted by caller after the
+   * computation finishes. This list also contains resources that act as a task.
+   * @param resources List of resources. Resources need to be deleted by caller
+   * after the computation finishes.
+   * @param result_key Object that helps obtain the index for a certain
+   * parameter result from the results array when looping over the input
+   * parameters in an ordered fashion. Needs to be deleted by caller after the
+   * results have been retrieved.
+   * @param results Results of the computation. Note that these are also
+   * resources. Results need to be deleted by caller after the computation
+   * finishes (and after the results have been retrieved).
+   * @param space_manager TMatrixAuxiliarySpaceManager that manages per thread
+   * additional space for the T-matrix calculation. Needs to be deleted by
+   * caller after the computation finishes.
+   * @param verbose Output diagnostic warnings?
+   * @param write_memory_log Write a log file with the memory allocations?
+   * @param memory_log_file_name Name of the memory log file.
+   */
+  inline void generate_scattering_tasks(
+      const std::vector<float_type> &theta_in,
+      const std::vector<float_type> &theta_out,
+      const std::vector<float_type> &phi, const uint_fast32_t ngauss,
+      QuickSched &quicksched, std::vector<Task *> &tasks,
+      std::vector<Resource *> &resources, ResultKey *&result_key,
+      std::vector<Result *> &results,
+      TMatrixAuxiliarySpaceManager *&space_manager, const bool verbose = false,
+      const bool write_memory_log = false,
+      const std::string memory_log_file_name = "") {
+
+    // sort the input arrays
+    std::sort(_sizes.begin(), _sizes.end());
+    std::sort(_wavelengths.begin(), _wavelengths.end());
+
+    result_key = new ResultKey(_compositions, _sizes, _wavelengths, 1);
+
+    // get the dimensions of the computational grid
+    const uint_fast32_t number_of_compositions = _compositions.size();
+    const uint_fast32_t number_of_sizes = _sizes.size();
+    const uint_fast32_t number_of_wavelengths = _wavelengths.size();
+    const uint_fast32_t number_of_shapes =
+        _shape_distribution.get_number_of_points();
+    // number of angles to use for the scattering matrices
+    const uint_fast32_t number_of_angles_theta_in = theta_in.size();
+    const uint_fast32_t number_of_angles_theta_out = theta_out.size();
+    const uint_fast32_t number_of_angles_phi = phi.size();
+
+    // grand total of T-matrices we need to compute
+    const uint_fast32_t total_number_of_interactions =
+        number_of_compositions * number_of_sizes * number_of_wavelengths;
+    const uint_fast32_t total_number_of_Tmatrices =
+        total_number_of_interactions * number_of_shapes;
+    if (verbose) {
+      ctm_warning(
+          "Number of T-matrices that needs to be computed: %" PRIuFAST32,
+          total_number_of_Tmatrices);
+    }
+    // number of quadrature tasks that we need
+    const uint_fast32_t minimum_ngauss =
+        _minimum_order * _gauss_legendre_factor;
+    const uint_fast32_t maximum_ngauss =
+        _maximum_order * _gauss_legendre_factor;
+    const uint_fast32_t number_of_quadrature_tasks =
+        _maximum_order - _minimum_order;
+
+    if (verbose) {
+      ctm_warning(
+          "Performing dry task setup run to determine memory requirements");
+    }
+    // memory allocations: we first compute how much memory we will use
+    // we need to keep track of memory to make sure we respect the user
+    // defined limit
+    // we will do a dummy creation of all tasks
+    MemoryManager memory_manager(_maximum_memory_usage, write_memory_log,
+                                 memory_log_file_name);
+    // NBasedResources:
+    //  task + resource
+    memory_manager.account_for_computable<NBasedResources>("NBasedResources", 0,
+                                                           _maximum_order);
+    // GaussBasedResources:
+    //  task + resource
+    for (uint_fast32_t i = 0; i < number_of_quadrature_tasks; ++i) {
+      const uint_fast32_t this_ngauss =
+          minimum_ngauss + i * _gauss_legendre_factor;
+      memory_manager.account_for_computable<GaussBasedResources>(
+          "GaussBasedResources", 0, this_ngauss);
+    }
+    // number of FullScatteringMatrixGrids:
+    //  task + resource
+    memory_manager.account_for_computable<FullScatteringMatrixGrid>(
+        "FullScatteringMatrixGrid", 0, number_of_angles_theta_in, &theta_in[0],
+        number_of_angles_theta_out, &theta_out[0], number_of_angles_phi,
+        &phi[0]);
+    // number of FullScatteringMatrixSpecialWignerDResources:
+    //  task + resource + 1 task dependency
+    memory_manager
+        .account_for_computable<FullScatteringMatrixSpecialWignerDResources>(
+            "FullScatteringMatrixSpecialWignerDResources", 1, _maximum_order,
+            number_of_angles_theta_in, number_of_angles_theta_out);
+    // number of WignerDResources:
+    //  task + resource + 1 task dependency
+    for (uint_fast32_t i = 0; i < number_of_quadrature_tasks; ++i) {
+      const uint_fast32_t this_order = _minimum_order + i;
+      const uint_fast32_t this_ngauss =
+          minimum_ngauss + i * _gauss_legendre_factor;
+      memory_manager.account_for_computable<WignerDResources>(
+          "WignerDResources", 1, this_order, this_ngauss, this_order < 100);
+    }
+    // number of ParticleGeometryResources:
+    //  task + resource + 1 task dependency
+    for (uint_fast32_t is = 0; is < number_of_shapes; ++is) {
+      for (uint_fast32_t ig = 0; ig < number_of_quadrature_tasks; ++ig) {
+        const uint_fast32_t this_ngauss =
+            minimum_ngauss + ig * _gauss_legendre_factor;
+        memory_manager.account_for_computable<ParticleGeometryResource>(
+            "ParticleGeometryResource", 1, this_ngauss);
+      }
+    }
+    // at this point, we have accounted for all computables that need to be
+    // allocated regardless of how much memory we have available
+    // next, we do a dry run of the T-matrix task setup to account for the
+    // resources that are required; this will give us the minimum required
+    // memory usage to be able to execute any computation
+
+    // loop over compositions
+    for (uint_fast32_t icomp = 0; icomp < number_of_compositions; ++icomp) {
+      // loop over all sizes
+      for (uint_fast32_t isize = 0; isize < number_of_sizes; ++isize) {
+        // loop over all wavelengths
+        for (uint_fast32_t ilambda = 0; ilambda < number_of_wavelengths;
+             ++ilambda) {
+          memory_manager.account_for_resource<InteractionVariables>(
+              "InteractionVariables");
+
+          memory_manager.account_for_result<FullScatteringMatrixResult>(
+              "FullScatteringMatrixResult", number_of_angles_theta_in,
+              number_of_angles_theta_out, number_of_angles_phi);
+
+          memory_manager
+              .account_for_task<FullScatteringMatrixShapeAveragingTask>(
+                  "FullScatteringMatrixShapeAveragingTask", 0,
+                  _shape_distribution);
+
+          // loop over all shapes
+          for (uint_fast32_t ishape = 0; ishape < number_of_shapes; ++ishape) {
+
+            memory_manager.account_for_resource<FullScatteringMatrixResult>(
+                "FullScatteringMatrixResult", number_of_angles_theta_in,
+                number_of_angles_theta_out, number_of_angles_phi);
+
+            // allocate the corresponding interaction variables and control
+            // object
+            memory_manager.account_for_resource<ConvergedSizeResources>(
+                "ConvergedSizeResources");
+
+            // loop over all orders
+            for (uint_fast32_t ig = 0; ig < number_of_quadrature_tasks; ++ig) {
+              // for safety, we overestimate the number of dependencies;
+              // we don't know for sure whether this task will have an
+              // additional dependency because it reuses a TMatrixResource
+              memory_manager.account_for_task<InteractionTask>(
+                  "InteractionTask", 2);
+
+              // account for the m=0 task
+              // again, we overestimate the number of dependencies
+              memory_manager.account_for_task<TMatrixM0Task>("TMatrixM0Task",
+                                                             4 + (ig > 0));
+            }
+
+            memory_manager.account_for_task<AlignmentAverageTask>(
+                "AlignmentAverageTask", 0);
+
+            memory_manager.account_for_task<FullScatteringMatrixTask>(
+                "FullScatteringMatrixTask", 3);
+
+            memory_manager.account_for_task<ResetTMatrixResourceTask>(
+                "ResetTMatrixResourceTask", 1);
+
+            memory_manager.account_for_task<ResetTMatrixResourceTask>(
+                "ResetTMatrixResourceTask", 2);
+
+            memory_manager.account_for_task<ResetInteractionResourceTask>(
+                "ResetInteractionResourceTask", 1);
+
+            // loop over all m values to set up m=/=0 tasks
+            for (uint_fast32_t i = 0; i < _maximum_order; ++i) {
+              memory_manager.account_for_task<TMatrixMAllTask>(
+                  "TMatrixMAllTask", 2);
+            }
+          }
+        }
+      }
+    }
+
+    // account for auxiliary space per thread
+    memory_manager.add_memory_allocation(
+        TMatrixAuxiliarySpaceManager::get_memory_size(
+            quicksched.get_number_of_threads(), _maximum_order),
+        "TMatrixAuxiliarySpaceManager");
+
+    // account for the pointer storage
+    memory_manager.add_memory_allocation(
+        memory_manager.get_number_of_task_pointers() * sizeof(Task *), "Task*");
+    memory_manager.add_memory_allocation(
+        memory_manager.get_number_of_resource_pointers() * sizeof(Resource *),
+        "Resource*");
+    memory_manager.add_memory_allocation(
+        memory_manager.get_number_of_result_pointers() * sizeof(Result *),
+        "Result*");
+
+    // we are done accounting for all necessary objects
+    // first allocate QuickSched memory for all objects so far
+    memory_manager.allocate_quicksched_memory(quicksched);
+
+    // now allocate a single chunk of T-matrix and interaction resources to
+    // get the per chunk memory requirements
+    const size_t memory_size_required = memory_manager.get_memory_used();
+    memory_manager.account_for_resource<TMatrixResource>("TMatrixResource",
+                                                         _maximum_order);
+    memory_manager.account_for_resource<TMatrixResource>("TMatrixResource",
+                                                         _maximum_order);
+    memory_manager.account_for_resource<InteractionResource>(
+        "InteractionResource", _maximum_order, maximum_ngauss);
+    // additional resource pointers
+    memory_manager.add_memory_allocation(3 * sizeof(Resource *), "Resource*");
+    memory_manager.allocate_quicksched_memory(quicksched);
+    const size_t memory_per_Tmatrix =
+        memory_manager.get_memory_used() - memory_size_required;
+    // now figure out how many extra T-matrices we can store
+    const size_t memory_left =
+        _maximum_memory_usage - memory_manager.get_memory_used();
+    const uint_fast32_t number_of_extra_tmatrices = std::min(
+        memory_left / memory_per_Tmatrix, total_number_of_Tmatrices - 1);
+    for (uint_fast32_t itmatrix = 0; itmatrix < number_of_extra_tmatrices;
+         ++itmatrix) {
+      memory_manager.account_for_resource<TMatrixResource>("TMatrixResource",
+                                                           _maximum_order);
+      memory_manager.account_for_resource<TMatrixResource>("TMatrixResource",
+                                                           _maximum_order);
+      memory_manager.account_for_resource<InteractionResource>(
+          "InteractionResource", _maximum_order, maximum_ngauss);
+    }
+    memory_manager.add_memory_allocation(3 * sizeof(Resource *), "Resource*");
+    memory_manager.allocate_quicksched_memory(quicksched);
+
+    const uint_fast32_t number_of_tmatrices = number_of_extra_tmatrices + 1;
+    if (verbose) {
+      ctm_warning("Done determining memory requirements.");
+      ctm_warning(
+          "Total memory usage: %s",
+          Utilities::human_readable_bytes(memory_manager.get_memory_used())
+              .c_str());
+      ctm_warning("Space to store %" PRIuFAST32 " T-matrices.",
+                  number_of_tmatrices);
+
+      memory_manager.output_totals();
+    }
+
+    // now actually allocate and create everything
+
+    if (verbose) {
+      ctm_warning("Creating tasks and resources...");
+    }
+    // start with allocating the pointer vectors
+    tasks.resize(memory_manager.get_number_of_task_pointers(), nullptr);
+    resources.resize(memory_manager.get_number_of_resource_pointers(), nullptr);
+    results.resize(memory_manager.get_number_of_result_pointers(), nullptr);
+    // we will use running indices to fill them
+    size_t running_task_index = 0;
+    size_t running_resource_index = 0;
+    size_t running_result_index = 0;
+
+    // allocate auxiliary space per thread
+    space_manager = new TMatrixAuxiliarySpaceManager(
+        quicksched.get_number_of_threads(), _maximum_order);
+
+    // step 1: set up the tasks that need to be done regardless of what the
+    // parameter values are:
+
+    //  - N based resources
+    NBasedResources *nbased_resources = new NBasedResources(_maximum_order);
+    tasks[running_task_index] = nbased_resources;
+    ++running_task_index;
+    quicksched.register_resource(*nbased_resources);
+    quicksched.register_task(*nbased_resources);
+    nbased_resources->link_resources(quicksched);
+
+    //  - quadrature points
+    // we can retrieve the GaussBasedResources from the task vector from
+    // the offset below
+    const size_t quadrature_points_offset = running_task_index;
+    for (uint_fast32_t i = 0; i < number_of_quadrature_tasks; ++i) {
+      const uint_fast32_t this_ngauss =
+          minimum_ngauss + i * _gauss_legendre_factor;
+      GaussBasedResources *this_quadrature_points =
+          new GaussBasedResources(this_ngauss);
+      quicksched.register_resource(*this_quadrature_points);
+      quicksched.register_task(*this_quadrature_points);
+      this_quadrature_points->link_resources(quicksched);
+      tasks[running_task_index] = this_quadrature_points;
+      ++running_task_index;
+    }
+
+    //  - scattering matrix grid
+    FullScatteringMatrixGrid *scattering_grid = new FullScatteringMatrixGrid(
+        number_of_angles_theta_in, &theta_in[0], number_of_angles_theta_out,
+        &theta_out[0], number_of_angles_phi, &phi[0]);
+    quicksched.register_resource(*scattering_grid);
+    quicksched.register_task(*scattering_grid);
+    scattering_grid->link_resources(quicksched);
+    tasks[running_task_index] = scattering_grid;
+    ++running_task_index;
+
+    //  - special Wigner D functions
+    FullScatteringMatrixSpecialWignerDResources *scattering_special_wigner =
+        new FullScatteringMatrixSpecialWignerDResources(_maximum_order,
+                                                        *scattering_grid);
+    quicksched.register_resource(*scattering_special_wigner);
+    quicksched.register_task(*scattering_special_wigner);
+    scattering_special_wigner->link_resources(quicksched);
+    quicksched.link_tasks(*scattering_grid, *scattering_special_wigner);
+    tasks[running_task_index] = scattering_special_wigner;
+    ++running_task_index;
+
+    //  - Wigner D functions
+    // we can retrieve the WignerDResources from the task vector from
+    // the offset below
+    const size_t wigner_d_offset = running_task_index;
+    for (uint_fast32_t i = 0; i < number_of_quadrature_tasks; ++i) {
+      const uint_fast32_t this_order = _minimum_order + i;
+      const uint_fast32_t this_ngauss =
+          minimum_ngauss + i * _gauss_legendre_factor;
+      const GaussBasedResources &this_quadrature_points =
+          *static_cast<GaussBasedResources *>(
+              tasks[quadrature_points_offset + i]);
+      WignerDResources *this_wignerdm0 = new WignerDResources(
+          this_order, this_ngauss, this_quadrature_points, this_order < 100);
+      quicksched.register_resource(*this_wignerdm0);
+      quicksched.register_task(*this_wignerdm0);
+      this_wignerdm0->link_resources(quicksched);
+      quicksched.link_tasks(this_quadrature_points, *this_wignerdm0);
+      tasks[running_task_index] = this_wignerdm0;
+      ++running_task_index;
+    }
+
+    // step 2: compute shape quadrature points and generate shape based
+    // resources that are shared between all parameter values
+    // we can retrieve the ParticleGeometryResource from the task vector from
+    // the offset below
+    const size_t particle_geometry_offset = running_task_index;
+    for (uint_fast32_t is = 0; is < number_of_shapes; ++is) {
+      for (uint_fast32_t ig = 0; ig < number_of_quadrature_tasks; ++ig) {
+        const uint_fast32_t this_ngauss =
+            minimum_ngauss + ig * _gauss_legendre_factor;
+        const GaussBasedResources &this_quadrature_points =
+            *static_cast<GaussBasedResources *>(
+                tasks[quadrature_points_offset + ig]);
+        ParticleGeometryResource *this_geometry =
+            new ParticleGeometryResource(_shape_distribution.get_shape(is),
+                                         this_ngauss, this_quadrature_points);
+        quicksched.register_resource(*this_geometry);
+        quicksched.register_task(*this_geometry);
+        this_geometry->link_resources(quicksched);
+        quicksched.link_tasks(this_quadrature_points, *this_geometry);
+        // note that we store the particle geometries as follows:
+        // rows (first index) correspond to different shapes
+        // columns (second index) correspond to different quadrature points
+        tasks[running_task_index] = this_geometry;
+        ++running_task_index;
+      }
+    }
+
+    // step 4: loop over all parameter values and set up parameter specific
+    // tasks
+
+    // now actually allocate the resources
+
+    // we can retrieve the InteractionResource from the resource vector from
+    // the offset below
+    const size_t interaction_resource_offset = running_resource_index;
+    for (uint_fast32_t i = 0; i < number_of_tmatrices; ++i) {
+      InteractionResource *this_interaction_resource =
+          new InteractionResource(_maximum_order, maximum_ngauss);
+      quicksched.register_resource(*this_interaction_resource);
+      resources[running_resource_index] = this_interaction_resource;
+      ++running_resource_index;
+    }
+
+    // we can retrieve the TMatrixResource from the resource vector from
+    // the offset below
+    const size_t tmatrix_resource_offset = running_resource_index;
+    for (uint_fast32_t i = 0; i < 2 * number_of_tmatrices; ++i) {
+      TMatrixResource *this_tmatrix_resource =
+          new TMatrixResource(_maximum_order);
+      resources[running_resource_index] = this_tmatrix_resource;
+      ++running_resource_index;
+      quicksched.register_resource(*this_tmatrix_resource);
+      for (uint_fast32_t m = 0; m < _maximum_order + 1; ++m) {
+        quicksched.register_resource(this_tmatrix_resource->get_m_resource(m),
+                                     this_tmatrix_resource);
+      }
+    }
+
+    // memory management:
+    // we only have N = number_of_tmatrices available interaction resources
+    // and T-matrix resources (2 of the latter, but that doesn't really matter
+    // here). This means that we need to reuse these resources if we need more.
+    // This is of course only allowed if we no longer need these resources, i.e.
+    // if the AbsorptionCoefficientTask for that specific T-matrix has
+    // finished.
+    // We keep a running index of the last used T-matrix resources, and if that
+    // overflows, we start reusing values. We also store all the tasks that
+    // last used the resource and create a task dependency between the old
+    // task that used the resource and the new task.
+    std::vector<Task *> unlock_tasks(number_of_tmatrices, nullptr);
+    uint_fast32_t resource_reuse_index = 0;
+
+    // big loop over all parameter values
+    // for each parameter value we allocate interaction variables and a
+    // control resource
+    // loop over compositions
+    for (uint_fast32_t icomp = 0; icomp < number_of_compositions; ++icomp) {
+      // get the grain type that corresponds to this composition
+      const int_fast32_t grain_type = _compositions[icomp];
+      // make sure the grain type exists
+      ctm_assert(grain_type >= 0 && grain_type < NUMBER_OF_DUSTGRAINTYPES);
+      // loop over all sizes
+      for (uint_fast32_t isize = 0; isize < number_of_sizes; ++isize) {
+        // cache the size
+        const float_type particle_size = _sizes[isize];
+        // loop over all wavelengths
+        for (uint_fast32_t ilambda = 0; ilambda < number_of_wavelengths;
+             ++ilambda) {
+
+          // cache the wavelength
+          const float_type wavelength = _wavelengths[ilambda];
+
+          // get the refractive index for this grain type, particle size and
+          // interaction wavelength
+          const std::complex<float_type> refractive_index =
+              _dust_properties.get_refractive_index(wavelength, particle_size,
+                                                    grain_type);
+
+          // create the interaction variables resource
+          // this resource contains some variables that are unique for this
+          // particular grain-photon interaction, e.g. the grain size, photon
+          // wavelength and refractive index
+          // the interaction variables are independent of the grain shape and
+          // will be shared by all T-matrix calculation for the different
+          // shapes
+          InteractionVariables *this_interaction_variables =
+              new InteractionVariables(particle_size, wavelength,
+                                       refractive_index);
+          quicksched.register_resource(*this_interaction_variables);
+          resources[running_resource_index] = this_interaction_variables;
+          ++running_resource_index;
+
+          FullScatteringMatrixResult *this_scattering_result =
+              new FullScatteringMatrixResult(
+                  grain_type, particle_size, wavelength,
+                  number_of_angles_theta_in, number_of_angles_theta_out,
+                  number_of_angles_phi);
+          quicksched.register_resource(*this_scattering_result);
+          results[running_result_index] = this_scattering_result;
+          ++running_result_index;
+
+          FullScatteringMatrixShapeAveragingTask *scattering_averaging_task =
+              new FullScatteringMatrixShapeAveragingTask(
+                  _shape_distribution, *this_scattering_result);
+          quicksched.register_task(*scattering_averaging_task);
+          scattering_averaging_task->link_resources(quicksched);
+          tasks[running_task_index] = scattering_averaging_task;
+          ++running_task_index;
+
+          // loop over all shapes
+          for (uint_fast32_t ishape = 0; ishape < number_of_shapes; ++ishape) {
+
+            FullScatteringMatrixResult *this_unaveraged_scattering_result =
+                new FullScatteringMatrixResult(
+                    grain_type, particle_size, wavelength,
+                    number_of_angles_theta_in, number_of_angles_theta_out,
+                    number_of_angles_phi);
+            quicksched.register_resource(*this_unaveraged_scattering_result);
+            resources[running_resource_index] =
+                this_unaveraged_scattering_result;
+            ++running_resource_index;
+
+            // get the orientation distribution for this grain size and shape
+            // the shape dependence is due to the different orientations for
+            // oblate and prolate spheroids
+            const OrientationDistribution &this_orientation =
+                _alignment_distribution.get_distribution(
+                    particle_size, _shape_distribution.get_shape(ishape));
+
+            // create the control object that stores useful information about
+            // a single T-matrix calculation
+            ConvergedSizeResources *this_converged_size =
+                new ConvergedSizeResources();
+            quicksched.register_resource(*this_converged_size);
+            resources[running_resource_index] = this_converged_size;
+            ++running_resource_index;
+
+            // obtain the resources to store Bessel functions and (un)averaged
+            // T-matrices
+            InteractionResource *this_interaction_resource =
+                static_cast<InteractionResource *>(
+                    resources[interaction_resource_offset +
+                              resource_reuse_index]);
+            TMatrixResource *this_single_Tmatrix =
+                static_cast<TMatrixResource *>(
+                    resources[tmatrix_resource_offset +
+                              2 * resource_reuse_index]);
+            TMatrixResource *this_ensemble_Tmatrix =
+                static_cast<TMatrixResource *>(
+                    resources[tmatrix_resource_offset +
+                              2 * resource_reuse_index + 1]);
+
+            // we need to store the previous m=0 task to set up a dependency
+            TMatrixM0Task *previous_m0task = nullptr;
+            // loop over all orders/numbers of quadrature points
+            for (uint_fast32_t ig = 0; ig < number_of_quadrature_tasks; ++ig) {
+              const uint_fast32_t this_order = _minimum_order + ig;
+              const uint_fast32_t this_ngauss =
+                  minimum_ngauss + ig * _gauss_legendre_factor;
+              const GaussBasedResources &this_quadrature_points =
+                  *static_cast<GaussBasedResources *>(
+                      tasks[quadrature_points_offset + ig]);
+              const WignerDResources &this_wigner =
+                  *static_cast<WignerDResources *>(tasks[wigner_d_offset + ig]);
+              const ParticleGeometryResource &this_geometry =
+                  *static_cast<ParticleGeometryResource *>(
+                      tasks[particle_geometry_offset +
+                            ishape * number_of_quadrature_tasks + ig]);
+              // set up the interaction task
+              InteractionTask *this_interaction = new InteractionTask(
+                  this_order, this_ngauss, this_geometry, *this_converged_size,
+                  *this_interaction_variables, *this_interaction_resource);
+              quicksched.register_task(*this_interaction);
+              this_interaction->link_resources(quicksched);
+              quicksched.link_tasks(this_geometry, *this_interaction);
+              if (unlock_tasks[resource_reuse_index] != nullptr) {
+                quicksched.link_tasks(*unlock_tasks[resource_reuse_index],
+                                      *this_interaction);
+              }
+              tasks[running_task_index] = this_interaction;
+              ++running_task_index;
+
+              // set up the m=0 task
+              TMatrixM0Task *this_m0task = new TMatrixM0Task(
+                  _tolerance, this_order, this_ngauss, *nbased_resources,
+                  this_quadrature_points, this_geometry,
+                  *this_interaction_variables, *this_interaction_resource,
+                  this_wigner, *space_manager, *this_single_Tmatrix,
+                  *this_converged_size, this_single_Tmatrix->get_m_resource(0));
+              quicksched.register_task(*this_m0task);
+              this_m0task->link_resources(quicksched);
+              quicksched.link_tasks(*nbased_resources, *this_m0task);
+              quicksched.link_tasks(this_wigner, *this_m0task);
+              quicksched.link_tasks(*this_interaction, *this_m0task);
+              // link the previous task as dependency, if it exists
+              if (previous_m0task != nullptr) {
+                quicksched.link_tasks(*previous_m0task, *this_interaction);
+              } else {
+                if (unlock_tasks[resource_reuse_index] != nullptr) {
+                  quicksched.link_tasks(*unlock_tasks[resource_reuse_index],
+                                        *this_m0task);
+                }
+              }
+              tasks[running_task_index] = this_m0task;
+              ++running_task_index;
+              previous_m0task = this_m0task;
+            }
+
+            // create an alignment task to perform the averaging over the
+            // shape distribution
+            AlignmentAverageTask *alignment_task = new AlignmentAverageTask(
+                this_orientation, *this_single_Tmatrix, *space_manager,
+                *this_ensemble_Tmatrix);
+            quicksched.register_task(*alignment_task);
+            alignment_task->link_resources(quicksched);
+            tasks[running_task_index] = alignment_task;
+            ++running_task_index;
+
+            FullScatteringMatrixTask *scattering_task =
+                new FullScatteringMatrixTask(
+                    *scattering_grid, *this_interaction_variables,
+                    *this_ensemble_Tmatrix, *nbased_resources,
+                    *scattering_special_wigner,
+                    *this_unaveraged_scattering_result);
+            quicksched.register_task(*scattering_task);
+            scattering_task->link_resources(quicksched);
+            quicksched.link_tasks(*alignment_task, *scattering_task);
+            quicksched.link_tasks(*scattering_special_wigner, *scattering_task);
+            tasks[running_task_index] = scattering_task;
+            ++running_task_index;
+
+            scattering_averaging_task->add_input_matrices(
+                quicksched, ishape, this_unaveraged_scattering_result);
+            quicksched.link_tasks(*scattering_task, *scattering_averaging_task);
+
+            // create tasks to clear the interaction and T-matrix resources
+            ResetTMatrixResourceTask *reset_task1 =
+                new ResetTMatrixResourceTask(*this_single_Tmatrix);
+            quicksched.register_task(*reset_task1);
+            reset_task1->link_resources(quicksched);
+            tasks[running_task_index] = reset_task1;
+            ++running_task_index;
+            quicksched.link_tasks(*alignment_task, *reset_task1);
+
+            ResetTMatrixResourceTask *reset_task2 =
+                new ResetTMatrixResourceTask(*this_ensemble_Tmatrix);
+            quicksched.register_task(*reset_task2);
+            reset_task2->link_resources(quicksched);
+            tasks[running_task_index] = reset_task2;
+            ++running_task_index;
+            // this one is not stricly necessary but makes it easier to keep
+            // track of unlock tasks
+            quicksched.link_tasks(*reset_task1, *reset_task2);
+            quicksched.link_tasks(*scattering_task, *reset_task2);
+
+            ResetInteractionResourceTask *reset_task3 =
+                new ResetInteractionResourceTask(*this_interaction_resource);
+            quicksched.register_task(*reset_task3);
+            reset_task3->link_resources(quicksched);
+            tasks[running_task_index] = reset_task3;
+            ++running_task_index;
+            // this one is not stricly necessary but makes it easier to keep
+            // track of unlock tasks
+            quicksched.link_tasks(*reset_task2, *reset_task3);
+
+            // loop over all m values to set up m=/=0 tasks
+            for (uint_fast32_t i = 0; i < _maximum_order; ++i) {
+              TMatrixMAllTask *this_malltask = new TMatrixMAllTask(
+                  i + 1, *nbased_resources, *this_converged_size,
+                  *this_interaction_variables, *this_interaction_resource,
+                  *space_manager, *this_single_Tmatrix,
+                  this_single_Tmatrix->get_m_resource(i + 1));
+              quicksched.register_task(*this_malltask);
+              this_malltask->link_resources(quicksched);
+              // link to the last m=0 task
+              quicksched.link_tasks(*previous_m0task, *this_malltask);
+              quicksched.link_tasks(*this_malltask, *alignment_task);
+              tasks[running_task_index] = this_malltask;
+              ++running_task_index;
+            }
+
+            // flag the last reset task as dependency for this set of T-matrix
+            // resources
+            // T-matrix tasks that are created later that reuse these resources
+            // will explicitly depend on this task
+            unlock_tasks[resource_reuse_index] = reset_task3;
+            ++resource_reuse_index;
+            // the reuse index overflows; if we reach the maximum number of
+            // available resources, we start reusing them
+            resource_reuse_index %= number_of_tmatrices;
+          }
+        }
+      }
+    }
+
+    if (verbose) {
+      ctm_warning("Done creating tasks and resources.");
+    }
+  }
 };
 
 #endif // TASKMANAGER_HPP

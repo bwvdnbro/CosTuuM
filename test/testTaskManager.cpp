@@ -119,14 +119,9 @@ inline void float_to_file(std::ofstream &ofile, const T &value) {
 }
 
 /**
- * @brief Unit test for the TaskManager class.
- *
- * @param argc Number of command line arguments (ignored).
- * @param argv Command line arguments (ignored).
- * @return Exit code: 0 on success.
+ * @brief Unit test for the generate_tasks() function.
  */
-int main(int argc, char **argv) {
-
+inline int test_generate_tasks() {
   uint_fast32_t shape_distribution_type = 2;
   ShapeDistribution *shape_distribution;
   if (shape_distribution_type == 0) {
@@ -305,6 +300,146 @@ int main(int argc, char **argv) {
   delete space_manager;
 
   delete shape_distribution;
+
+  return 0;
+}
+
+/**
+ * @brief Unit test for the generate_scattering_tasks() function.
+ */
+inline int test_generate_scattering_tasks() {
+  uint_fast32_t shape_distribution_type = 2;
+  ShapeDistribution *shape_distribution;
+  if (shape_distribution_type == 0) {
+    shape_distribution = new ShapeDistribution();
+    shape_distribution->evaluate(20u);
+  } else if (shape_distribution_type == 1) {
+    shape_distribution = new DraineHensleyShapeDistribution(20u);
+  } else if (shape_distribution_type == 2) {
+    shape_distribution = new SingleShapeShapeDistribution(1.00001);
+  } else {
+    ctm_error("Invalid shape distribution type!");
+    shape_distribution = nullptr;
+  }
+  SizeBasedAlignmentDistribution alignment_distribution(1.e-5, 0, 100);
+  const DraineDustProperties dust_properties;
+  TaskManager task_manager(10, 100, 2, 1.e-4, 1e10, *shape_distribution,
+                           alignment_distribution, dust_properties);
+
+  const float_type log_min_size = -9.;
+  const float_type log_max_size = -5.;
+  const uint_fast32_t num_sizes = 3;
+  std::vector<float_type> sizes(num_sizes);
+  for (uint_fast32_t isize = 0; isize < num_sizes; ++isize) {
+    sizes[isize] =
+        pow(10., log_min_size +
+                     isize * (log_max_size - log_min_size) / (num_sizes - 1.));
+  }
+
+  const float_type log_min_wavelength = -5.;
+  const float_type log_max_wavelength = -3.;
+  const uint_fast32_t num_wavelengths = 3;
+  std::vector<float_type> wavelengths(num_wavelengths);
+  for (uint_fast32_t ilambda = 0; ilambda < num_wavelengths; ++ilambda) {
+    wavelengths[ilambda] =
+        pow(10., log_min_wavelength +
+                     ilambda * (log_max_wavelength - log_min_wavelength) /
+                         (num_wavelengths - 1.));
+  }
+
+  task_manager.add_composition(DUSTGRAINTYPE_SILICON);
+  for (uint_fast32_t i = 0; i < sizes.size(); ++i) {
+    task_manager.add_size(sizes[i]);
+  }
+  for (uint_fast32_t i = 0; i < wavelengths.size(); ++i) {
+    task_manager.add_wavelength(wavelengths[i]);
+  }
+
+  QuickSched quicksched(4, true, "test_TaskManager.log");
+
+  const uint_fast32_t ntheta = 10;
+  std::vector<float_type> theta_in(ntheta);
+  std::vector<float_type> theta_out(ntheta);
+  std::vector<float_type> phi(ntheta);
+  for (uint_fast32_t i = 0; i < ntheta; ++i) {
+    theta_in[i] = (i + 0.5) * M_PI / ntheta;
+    theta_out[i] = (i + 0.5) * M_PI / ntheta;
+    phi[i] = (i + 0.5) * 2. * M_PI / ntheta;
+  }
+
+  std::vector<Task *> tasks;
+  std::vector<Resource *> resources;
+  ResultKey *result_key = nullptr;
+  std::vector<Result *> results;
+  TMatrixAuxiliarySpaceManager *space_manager = nullptr;
+  task_manager.generate_scattering_tasks(theta_in, theta_out, phi, 20,
+                                         quicksched, tasks, resources,
+                                         result_key, results, space_manager);
+
+  quicksched.execute_tasks();
+
+  std::ofstream taskfile("test_taskmanager_scattering_tasks.txt");
+  taskfile << "# thread\tstart\tend\ttype\ttask id\n";
+  print_vector(tasks, quicksched, taskfile);
+  std::ofstream typefile("test_taskmanager_scattering_types.txt");
+  typefile << "# type\tlabel\n";
+  quicksched.print_type_dict(typefile);
+
+  std::ofstream ofile("test_full_scattering_matrix.txt");
+  ofile << "#lambda\tsize\ttheta_in\ttheta_out\tphi\tZ[0-16]\n";
+  for (uint_fast32_t ilambda = 0; ilambda < result_key->wavelength_size();
+       ++ilambda) {
+    for (uint_fast32_t isize = 0; isize < result_key->size_size(); ++isize) {
+      const uint_fast32_t result_index =
+          result_key->get_result_index(0, isize, ilambda);
+      const FullScatteringMatrixResult &result =
+          *static_cast<FullScatteringMatrixResult *>(results[result_index]);
+      for (uint_fast32_t itheta_in = 0; itheta_in < ntheta; ++itheta_in) {
+        for (uint_fast32_t itheta_out = 0; itheta_out < ntheta; ++itheta_out) {
+          for (uint_fast32_t iphi = 0; iphi < ntheta; ++iphi) {
+            ofile << wavelengths[ilambda] << "\t" << sizes[isize] << "\t"
+                  << theta_in[itheta_in] << "\t" << theta_out[itheta_out]
+                  << "\t" << phi[iphi];
+            float_type Z[16];
+            result.get_scattering_matrix(itheta_in, itheta_out, iphi, Z);
+            for (uint_fast8_t i = 0; i < 16; ++i) {
+              ofile << "\t" << Z[i];
+            }
+            ofile << "\n";
+          }
+        }
+      }
+    }
+  }
+  clear_vector(tasks);
+  clear_vector(resources);
+  delete result_key;
+  clear_vector(results);
+  delete space_manager;
+
+  delete shape_distribution;
+
+  return 0;
+}
+
+/**
+ * @brief Unit test for the TaskManager class.
+ *
+ * @param argc Number of command line arguments (ignored).
+ * @param argv Command line arguments (ignored).
+ * @return Exit code: 0 on success.
+ */
+int main(int argc, char **argv) {
+
+  if (test_generate_tasks() != 0) {
+    ctm_error("Error running test_generate_tasks()");
+    return 1;
+  }
+
+  if (test_generate_scattering_tasks() != 0) {
+    ctm_error("Error running test_generate_scattering_tasks()");
+    return 1;
+  }
 
   return 0;
 }

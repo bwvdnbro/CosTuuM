@@ -364,16 +364,18 @@ public:
    * object with the given parameters.
    *
    * @param nmax Maximum order, @f$n_{max}@f$.
-   * @param ntheta Number of zenith angles.
+   * @param ntheta_in Number of input zenith angles.
+   * @param ntheta_out Number of output zenith angles.
    * @return Size in bytes of the hypothetical object.
    */
   static inline size_t get_memory_size(const uint_fast32_t nmax,
-                                       const uint_fast32_t ntheta) {
+                                       const uint_fast32_t ntheta_in,
+                                       const uint_fast32_t ntheta_out) {
     size_t size = sizeof(FullScatteringMatrixSpecialWignerDResources);
     for (uint_fast32_t n = 1; n < nmax + 1; ++n) {
       for (uint_fast32_t m = 0; m < n + 1; ++m) {
-        size += 2 * ntheta * n * sizeof(float_type);
-        size += 2 * ntheta * n * sizeof(float_type);
+        size += 2 * ntheta_in * n * sizeof(float_type);
+        size += 2 * ntheta_out * n * sizeof(float_type);
       }
     }
     return size;

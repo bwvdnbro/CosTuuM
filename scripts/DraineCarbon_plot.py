@@ -93,22 +93,22 @@ output_perpendicular = np.fromfile("DraineCarbon_perpendicular.dat").reshape(
     (len(wavelengths), 2)
 )
 
-l1, = pl.loglog(
+(l1,) = pl.loglog(
     wavelengths * 1.0e6,
     output_parallel[:, 0],
     label="CosTuuM, $\\varepsilon{} \\parallel{} c$",
 )
-l2, = pl.loglog(
+(l2,) = pl.loglog(
     wavelengths * 1.0e6,
     output_perpendicular[:, 0],
     label="CosTuuM, $\\varepsilon{} \\perp{} c$",
 )
-l3, = pl.loglog(
+(l3,) = pl.loglog(
     wavelengths * 1.0e6,
     propdata[isize, idx, 2][::-1],
     label="Draine \& Lee (1984)",
 )
-l4, = pl.loglog(
+(l4,) = pl.loglog(
     wavelengths * 1.0e6,
     output_parallel[:, 0] / 3.0 + 2.0 * output_perpendicular[:, 0] / 3.0,
     label="CosTuuM, $1/3-2/3$",

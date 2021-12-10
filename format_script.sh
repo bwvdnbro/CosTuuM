@@ -18,16 +18,16 @@
  # along with CosTuuM. If not, see <http://www.gnu.org/licenses/>.
  ###############################################################################
 
-command -v clang-format-6.0 >/dev/null 2>&1 || \
-  { echo >&2 "This script requires clang-format-6.0, but it is not installed!" \
+command -v clang-format-11 >/dev/null 2>&1 || \
+  { echo >&2 "This script requires clang-format-11, but it is not installed!" \
              "Aborting."; exit 1; }
 
 files=( src/*.cpp src/*.hpp src/*.cpp.in src/*.hpp.in test/*.cpp test/*.hpp \
         quicksched/*.[ch] )
 
-echo "Formatting C++ files using clang-format-6.0..."
+echo "Formatting C++ files using clang-format-11..."
 for f in "${files[@]}"
-do clang-format-6.0 -style=file -i $f
+do clang-format-11 -style=file -i $f
 done
 echo "Done."
 

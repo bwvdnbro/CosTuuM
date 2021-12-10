@@ -173,8 +173,8 @@ pl.semilogy(
     ns, maxdiffsQabspolobl / abs(ref_oblate[:, 1].mean()), "--", color="C3"
 )
 
-meanline, = pl.plot([], [], "k-")
-maxline, = pl.plot([], [], "k--")
+(meanline,) = pl.plot([], [], "k-")
+(maxline,) = pl.plot([], [], "k--")
 leg = pl.legend([meanline, maxline], ["mean", "max"], loc="upper right")
 
 pl.xlabel("number of quadrature points")

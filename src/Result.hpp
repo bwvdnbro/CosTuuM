@@ -36,7 +36,9 @@ enum ResultType {
   /*! @brief Absorption coefficient result. */
   RESULTTYPE_ABSORPTIONCOEFFICIENTS = 0,
   /*! @brief Extinction coefficient result. */
-  RESULTTYPE_EXTINCTIONCOEFFICIENTS
+  RESULTTYPE_EXTINCTIONCOEFFICIENTS,
+  /*! @brief Full scattering matrix result. */
+  RESULTTYPE_FULLSCATTERINGMATRIX
 };
 
 /**

@@ -142,8 +142,9 @@ Tmatrix = CosTuuM.TMatrix(
     cos2beta=1.0,
     is_equal_volume_radius=True,
 )
-Qabsd2 = Tmatrix.get_average_absorption_cross_section() / get_active_surface_area(
-    ai, 2.0
+Qabsd2 = (
+    Tmatrix.get_average_absorption_cross_section()
+    / get_active_surface_area(ai, 2.0)
 )
 Qabsd2theta = Tmatrix.get_absorption_cross_sections(
     theta=thetas
@@ -156,8 +157,9 @@ Tmatrix = CosTuuM.TMatrix(
     cos2beta=3.0 / 5.0,
     is_equal_volume_radius=True,
 )
-Qabsd2ia = Tmatrix.get_average_absorption_cross_section() / get_active_surface_area(
-    ai, 2.0
+Qabsd2ia = (
+    Tmatrix.get_average_absorption_cross_section()
+    / get_active_surface_area(ai, 2.0)
 )
 Qabsd2thetaia = Tmatrix.get_absorption_cross_sections(
     theta=thetas
@@ -170,8 +172,9 @@ Tmatrix = CosTuuM.TMatrix(
     cos2beta=1.0,
     is_equal_volume_radius=True,
 )
-Qabsd05 = Tmatrix.get_average_absorption_cross_section() / get_active_surface_area(
-    ai, 0.5
+Qabsd05 = (
+    Tmatrix.get_average_absorption_cross_section()
+    / get_active_surface_area(ai, 0.5)
 )
 Qabsd05theta = Tmatrix.get_absorption_cross_sections(
     theta=thetas
@@ -184,8 +187,9 @@ Tmatrix = CosTuuM.TMatrix(
     cos2beta=1.0 / 5.0,
     is_equal_volume_radius=True,
 )
-Qabsd05ia = Tmatrix.get_average_absorption_cross_section() / get_active_surface_area(
-    ai, 0.5
+Qabsd05ia = (
+    Tmatrix.get_average_absorption_cross_section()
+    / get_active_surface_area(ai, 0.5)
 )
 Qabsd05thetaia = Tmatrix.get_absorption_cross_sections(
     theta=thetas

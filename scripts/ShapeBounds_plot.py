@@ -101,8 +101,8 @@ pl.semilogy(
 pl.semilogy(ns, maxdiffsQabs / ref[:, 0].mean(), "--", color="C0")
 pl.semilogy(ns, maxdiffsQabspol / abs(ref[:, 1].mean()), "--", color="C1")
 
-meanline, = pl.plot([], [], "k-")
-maxline, = pl.plot([], [], "k--")
+(meanline,) = pl.plot([], [], "k-")
+(maxline,) = pl.plot([], [], "k--")
 leg = pl.legend([meanline, maxline], ["mean", "max"], loc="center")
 
 pl.xlabel("sample fraction")

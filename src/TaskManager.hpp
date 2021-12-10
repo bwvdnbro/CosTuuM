@@ -203,7 +203,7 @@ private:
     inline void
     account_for_computable(const std::string label,
                            const uint_fast32_t number_of_dependent_tasks,
-                           const ADDITIONAL_ARGUMENTS &... args) {
+                           const ADDITIONAL_ARGUMENTS &...args) {
 
       add_memory_allocation(COMPUTABLE::get_memory_size(args...), label);
       ++_number_of_tasks;
@@ -232,7 +232,7 @@ private:
     template <class TASK, typename... ADDITIONAL_ARGUMENTS>
     inline void account_for_task(const std::string label,
                                  const uint_fast32_t number_of_dependent_tasks,
-                                 const ADDITIONAL_ARGUMENTS &... args) {
+                                 const ADDITIONAL_ARGUMENTS &...args) {
 
       add_memory_allocation(TASK::get_memory_size(args...), label);
       ++_number_of_tasks;
@@ -257,7 +257,7 @@ private:
      */
     template <class RESOURCE, typename... ADDITIONAL_ARGUMENTS>
     inline void account_for_resource(const std::string label,
-                                     const ADDITIONAL_ARGUMENTS &... args) {
+                                     const ADDITIONAL_ARGUMENTS &...args) {
 
       add_memory_allocation(RESOURCE::get_memory_size(args...), label);
       ++_number_of_resources;
@@ -277,7 +277,7 @@ private:
      */
     template <class RESULT, typename... ADDITIONAL_ARGUMENTS>
     inline void account_for_result(const std::string label,
-                                   const ADDITIONAL_ARGUMENTS &... args) {
+                                   const ADDITIONAL_ARGUMENTS &...args) {
 
       add_memory_allocation(RESULT::get_memory_size(args...), label);
       ++_number_of_resources;

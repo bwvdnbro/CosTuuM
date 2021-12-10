@@ -532,15 +532,14 @@ public:
    */
   virtual void execute(const int_fast32_t thread_id) {
 
-    const uint_fast32_t nmat = _output_matrices._Z.size() / 4;
+    const uint_fast32_t nmat = _output_matrices._Z.size() / 16;
     const uint_fast32_t nshape = _shape_distribution.get_number_of_points();
 
     // make sure the average values are set to 0
     for (uint_fast32_t imat = 0; imat < nmat; ++imat) {
-      _output_matrices._Z[4 * imat] = 0.;
-      _output_matrices._Z[4 * imat + 1] = 0.;
-      _output_matrices._Z[4 * imat + 2] = 0.;
-      _output_matrices._Z[4 * imat + 3] = 0.;
+      for (uint_fast8_t i = 0; i < 16; ++i) {
+        _output_matrices._Z[16 * imat + i] = 0.;
+      }
     }
 
     // compute the nominator and denominator in the expression for the
@@ -550,7 +549,7 @@ public:
 
       // some sanity checks
       ctm_assert(_input_matrices[ishape] != nullptr);
-      ctm_assert(_input_matrices[ishape]->_Z.size() / 4 == nmat);
+      ctm_assert(_input_matrices[ishape]->_Z.size() / 16 == nmat);
 
       // get the value of the shape distribution at this evaluation point
       const float_type weight = _shape_distribution.get_weight(ishape);
@@ -558,9 +557,9 @@ public:
       norm += weight;
       // add the contributions from this shape
       for (uint_fast32_t imat = 0; imat < nmat; ++imat) {
-        for (uint_fast8_t i = 0; i < 4; ++i) {
-          _output_matrices._Z[4 * imat + i] +=
-              weight * _input_matrices[ishape]->_Z[4 * imat + i];
+        for (uint_fast8_t i = 0; i < 16; ++i) {
+          _output_matrices._Z[16 * imat + i] +=
+              weight * _input_matrices[ishape]->_Z[16 * imat + i];
         }
       }
     }
@@ -568,8 +567,8 @@ public:
     // normalise the average quantities
     const float_type norm_inv = 1. / norm;
     for (uint_fast32_t imat = 0; imat < nmat; ++imat) {
-      for (uint_fast8_t i = 0; i < 4; ++i) {
-        _output_matrices._Z[4 * imat + i] *= norm_inv;
+      for (uint_fast8_t i = 0; i < 16; ++i) {
+        _output_matrices._Z[16 * imat + i] *= norm_inv;
       }
     }
   }

@@ -68,7 +68,7 @@ public:
                                     const uint_fast32_t ntheta_out,
                                     const uint_fast32_t nphi)
       : Result(composition, size, wavelength, RESULTTYPE_FULLSCATTERINGMATRIX),
-        _Z(ntheta_in * ntheta_out * nphi * 4) {}
+        _Z(ntheta_in * ntheta_out * nphi * 16) {}
 
   virtual ~FullScatteringMatrixResult() {}
 
@@ -86,7 +86,7 @@ public:
                                        const uint_fast32_t ntheta_out,
                                        const uint_fast32_t nphi) {
     size_t size = sizeof(FullScatteringMatrixResult);
-    size += 4 * ntheta_in * ntheta_out * nphi * sizeof(float_type);
+    size += 16 * ntheta_in * ntheta_out * nphi * sizeof(float_type);
     return size;
   }
 
@@ -103,12 +103,11 @@ public:
                                     const uint_fast32_t itheta_out,
                                     const uint_fast32_t iphi,
                                     float_type *Z) const {
-    ctm_assert(4 * itheta_in * itheta_out * iphi + 3 < _Z.size());
-    const uint_fast32_t index = 4 * itheta_in * itheta_out * iphi;
-    Z[0] = _Z[index];
-    Z[1] = _Z[index + 1];
-    Z[2] = _Z[index + 2];
-    Z[3] = _Z[index + 3];
+    ctm_assert(16 * itheta_in * itheta_out * iphi + 15 < _Z.size());
+    const uint_fast32_t index = 16 * itheta_in * itheta_out * iphi;
+    for (uint_fast8_t i = 0; i < 16; ++i) {
+      Z[i] = _Z[index + i];
+    }
   }
 };
 
@@ -745,15 +744,34 @@ public:
           get_forward_scattering_matrix(1, itheta_in, 0, itheta_out, cos_phi,
                                         sin_phi, S);
 
-          float_type *Z = &_result._Z[4 * itheta_out * itheta_in * iphi];
+          float_type *Z = &_result._Z[16 * itheta_out * itheta_in * iphi];
           Z[0] = (half * (S[0] * conj(S[0]) + S[1] * conj(S[1]) +
                           S[2] * conj(S[2]) + S[3] * conj(S[3])))
                      .real();
           Z[1] = (half * (S[0] * conj(S[0]) - S[1] * conj(S[1]) +
                           S[2] * conj(S[2]) - S[3] * conj(S[3])))
                      .real();
-          Z[2] = (S[0] * conj(S[3]) + S[1] * conj(S[2])).real();
-          Z[3] = (-icompl * (S[0] * conj(S[3]) + S[2] * conj(S[1]))).real();
+          Z[2] = (-S[0] * conj(S[1]) - S[3] * conj(S[2])).real();
+          Z[3] = (icompl * (S[0] * conj(S[1]) - S[3] * conj(S[2]))).real();
+
+          Z[4] = (half * (S[0] * conj(S[0]) + S[1] * conj(S[1]) -
+                          S[2] * conj(S[2]) - S[3] * conj(S[3])))
+                     .real();
+          Z[5] = (half * (S[0] * conj(S[0]) - S[1] * conj(S[1]) -
+                          S[2] * conj(S[2]) + S[3] * conj(S[3])))
+                     .real();
+          Z[6] = (-S[0] * conj(S[1]) + S[3] * conj(S[2])).real();
+          Z[7] = (icompl * (S[0] * conj(S[1]) + S[3] * conj(S[2]))).real();
+
+          Z[8] = (-S[0] * conj(S[2]) - S[3] * conj(S[1])).real();
+          Z[9] = (-S[0] * conj(S[2]) + S[3] * conj(S[1])).real();
+          Z[10] = (S[0] * conj(S[3]) + S[1] * conj(S[2])).real();
+          Z[11] = (-icompl * (S[0] * conj(S[3]) + S[2] * conj(S[1]))).real();
+
+          Z[12] = (icompl * (S[2] * conj(S[0]) + S[3] * conj(S[1]))).real();
+          Z[13] = (icompl * (S[2] * conj(S[0]) - S[3] * conj(S[1]))).real();
+          Z[14] = (-icompl * (S[3] * conj(S[0]) - S[1] * conj(S[2]))).real();
+          Z[15] = (S[3] * conj(S[0]) - S[1] * conj(S[2])).real();
         }
       }
     }

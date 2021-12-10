@@ -1374,10 +1374,9 @@ public:
   inline void generate_scattering_tasks(
       const std::vector<float_type> &theta_in,
       const std::vector<float_type> &theta_out,
-      const std::vector<float_type> &phi, const uint_fast32_t ngauss,
-      QuickSched &quicksched, std::vector<Task *> &tasks,
-      std::vector<Resource *> &resources, ResultKey *&result_key,
-      std::vector<Result *> &results,
+      const std::vector<float_type> &phi, QuickSched &quicksched,
+      std::vector<Task *> &tasks, std::vector<Resource *> &resources,
+      ResultKey *&result_key, std::vector<Result *> &results,
       TMatrixAuxiliarySpaceManager *&space_manager, const bool verbose = false,
       const bool write_memory_log = false,
       const std::string memory_log_file_name = "") {

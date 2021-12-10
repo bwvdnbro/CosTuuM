@@ -372,9 +372,9 @@ inline int test_generate_scattering_tasks() {
   ResultKey *result_key = nullptr;
   std::vector<Result *> results;
   TMatrixAuxiliarySpaceManager *space_manager = nullptr;
-  task_manager.generate_scattering_tasks(theta_in, theta_out, phi, 20,
-                                         quicksched, tasks, resources,
-                                         result_key, results, space_manager);
+  task_manager.generate_scattering_tasks(theta_in, theta_out, phi, quicksched,
+                                         tasks, resources, result_key, results,
+                                         space_manager);
 
   quicksched.execute_tasks();
 

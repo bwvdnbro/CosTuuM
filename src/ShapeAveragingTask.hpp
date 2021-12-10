@@ -439,4 +439,139 @@ public:
   }
 };
 
+/**
+ * @brief Task that computes the shape distribution average of a full scattering
+ * matrix.
+ */
+class FullScatteringMatrixShapeAveragingTask : public Task {
+private:
+  /*! @brief Shape distribution. */
+  const ShapeDistribution &_shape_distribution;
+
+  /*! @brief Input scattering matrices. */
+  std::vector<FullScatteringMatrixResult *> _input_matrices;
+
+  /*! @brief Output (averaged) scattering matrices. */
+  FullScatteringMatrixResult &_output_matrices;
+
+public:
+  /**
+   * @brief Constructor.
+   *
+   * @param shape_distribution Shape distribution.
+   * @param output_matrices Output matrices.
+   */
+  inline FullScatteringMatrixShapeAveragingTask(
+      const ShapeDistribution &shape_distribution,
+      FullScatteringMatrixResult &output_matrices)
+      : _shape_distribution(shape_distribution),
+        _input_matrices(shape_distribution.get_number_of_points(), nullptr),
+        _output_matrices(output_matrices) {}
+
+  virtual ~FullScatteringMatrixShapeAveragingTask() {}
+
+  /**
+   * @brief Get the size in memory of a hypothetical
+   * FullScatteringMatrixShapeAveragingTask object with the given parameters.
+   *
+   * @param shape_distribution Shape distribution.
+   * @return Size in bytes that the object would occupy.
+   */
+  static inline size_t
+  get_memory_size(const ShapeDistribution &shape_distribution) {
+    size_t size = sizeof(FullScatteringMatrixShapeAveragingTask);
+    size += shape_distribution.get_number_of_points() *
+            sizeof(FullScatteringMatrixResult *);
+    return size;
+  }
+
+  /**
+   * @brief Link the resources for this task.
+   *
+   * @param quicksched QuickSched library.
+   */
+  inline void link_resources(QuickSched &quicksched) {
+    // write access
+    quicksched.link_task_and_resource(*this, _output_matrices, true);
+  }
+
+  /**
+   * @brief Get the number of read/write resources for this task.
+   *
+   * @return 1.
+   */
+  inline static uint_fast32_t number_of_readwrite_resources() { return 1; }
+
+  /**
+   * @brief Get the number of read only resources for this task.
+   *
+   * @return 0.
+   */
+  inline static uint_fast32_t number_of_readonly_resources() { return 0; }
+
+  /**
+   * @brief Add input matrices for the calculation.
+   *
+   * @param quicksched QuickSched library.
+   * @param ishape Index of the shape for which the matrices are computed.
+   * @param input_matrices Input coefficients.
+   */
+  inline void add_input_matrices(QuickSched &quicksched,
+                                 const uint_fast32_t ishape,
+                                 FullScatteringMatrixResult *input_matrices) {
+    ctm_assert(ishape < _input_matrices.size());
+    _input_matrices[ishape] = input_matrices;
+    quicksched.link_task_and_resource(*this, *input_matrices, false);
+  }
+
+  /**
+   * @brief Execute the task.
+   *
+   * @param thread_id ID of the thread that executes the task.
+   */
+  virtual void execute(const int_fast32_t thread_id) {
+
+    const uint_fast32_t nmat = _output_matrices._Z.size() / 4;
+    const uint_fast32_t nshape = _shape_distribution.get_number_of_points();
+
+    // make sure the average values are set to 0
+    for (uint_fast32_t imat = 0; imat < nmat; ++imat) {
+      _output_matrices._Z[4 * imat] = 0.;
+      _output_matrices._Z[4 * imat + 1] = 0.;
+      _output_matrices._Z[4 * imat + 2] = 0.;
+      _output_matrices._Z[4 * imat + 3] = 0.;
+    }
+
+    // compute the nominator and denominator in the expression for the
+    // average
+    float_type norm = 0.;
+    for (uint_fast32_t ishape = 0; ishape < nshape; ++ishape) {
+
+      // some sanity checks
+      ctm_assert(_input_matrices[ishape] != nullptr);
+      ctm_assert(_input_matrices[ishape]->_Z.size() / 4 == nmat);
+
+      // get the value of the shape distribution at this evaluation point
+      const float_type weight = _shape_distribution.get_weight(ishape);
+      // add it to the norm (denominator in expression)
+      norm += weight;
+      // add the contributions from this shape
+      for (uint_fast32_t imat = 0; imat < nmat; ++imat) {
+        for (uint_fast8_t i = 0; i < 4; ++i) {
+          _output_matrices._Z[4 * imat + i] +=
+              weight * _input_matrices[ishape]->_Z[4 * imat + i];
+        }
+      }
+    }
+
+    // normalise the average quantities
+    const float_type norm_inv = 1. / norm;
+    for (uint_fast32_t imat = 0; imat < nmat; ++imat) {
+      for (uint_fast8_t i = 0; i < 4; ++i) {
+        _output_matrices._Z[4 * imat + i] *= norm_inv;
+      }
+    }
+  }
+};
+
 #endif // SHAPEAVERAGINGTASK_HPP

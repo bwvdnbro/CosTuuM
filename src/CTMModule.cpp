@@ -502,8 +502,6 @@ static PyObject *get_table(PyObject *self, PyObject *args, PyObject *kwargs) {
  *  - tolerance: Maximum allowed relative difference between two successive
  *  orders of T-matrix calculations that decides when the calculation is
  *  converged.
- *  - number_of_quadrature_angles: Number of Gauss-Legendre quadrature points to
- *  use for the calculation of directional averages.
  *  - maximum_memory_size: Maximum allowed memory usage of the algorithm (in
  *  bytes).
  *  - number_of_threads: Number of shared-memory threads to use to run the
@@ -590,8 +588,8 @@ static PyObject *get_scattering_matrix_table(PyObject *self, PyObject *args,
           args, kwargs, "O&O&O&O&O&O&OOO|IIIdkizzzzp", kwlist,
           PyArray_Converter, &input_types, PyArray_Converter, &input_sizes,
           PyArray_Converter, &input_wavelengths, PyArray_Converter,
-          &input_theta_in, &shape_distribution_object, &input_theta_out,
-          &shape_distribution_object, &input_phi, &shape_distribution_object,
+          &input_theta_in, PyArray_Converter, &input_theta_out,
+          PyArray_Converter, &input_phi, &shape_distribution_object,
           &alignment_distribution_object, &dust_properties_object,
           &input_nmin_i, &input_nmax_i, &input_glfac_i, &input_tolerance_d,
           &input_memory_size_i, &input_nthread_i, &input_graph_log_name,
